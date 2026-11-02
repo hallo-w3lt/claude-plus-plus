@@ -51,6 +51,8 @@ The check uses the last country it saw, so a VPN drop is caught only after the n
 
 The same services as [IP Please](https://github.com/hallo-w3lt/ip-please-extension), in order, with no API key: `cloudflare.com/cdn-cgi/trace`, then `api.country.is`, `ipinfo.io` and `ipwho.is`. It checks at startup and again every 60 seconds by default, so a VPN change shows up on the next pass. Only the country code is kept, and only for the session.
 
+Every request goes from your machine, so each of these services sees your public IP address. That is how they can tell the country. Apart from the standard headers any web request carries, the plugin sends them nothing else. Like any mod, its prompt hook runs on every prompt you send, but it only checks where the prompt came from and whether it is a slash command. It never looks at the text you type, and nothing you type is stored or sent anywhere.
+
 ## Check interval
 
 Set `check_every_seconds` to change how often it asks. `5` means a VPN change shows up within 5 seconds. The value is kept between 2 and 3600; anything that is not a number falls back to 60. It is set the same way as `home_country`:
@@ -64,6 +66,8 @@ Set `check_every_seconds` to change how often it asks. `5` means a VPN change sh
 Each pass makes one request, to Cloudflare, and only goes on to the next service if that one fails. At 5 seconds that is 12 requests a minute to a free public endpoint, so keep it as high as you can live with.
 
 ## Install
+
+Needs Claude Code 2.1.287 or later in the terminal, which is the first version that loads mods; check yours with `claude --version`. The one-line shell install further down needs 2.1.292 or later. In the Desktop app's Code tab, mods work from 2.1.286. It was tested with 2.1.316.
 
 At the prompt of a terminal session:
 
