@@ -1,0 +1,32 @@
+{
+  "name": "my-country",
+  "version": "0.1.0",
+  "description": "Shows the country of your public IP as an uppercase ISO3 code (ESP, DEU, USA) at the left of the hint line under the prompt",
+  "author": { "name": "itandfeel" },
+  "license": "MIT",
+  "repository": "https://github.com/ITandfeel/my-country-claude-plugin",
+  "keywords": ["country", "ip", "footer"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "home_country": {
+      "type": "string",
+      "title": "Home country",
+      "description": "Your country as a 3-letter ISO code, for example USA. The code shows green while your IP is in that country and red anywhere else. Leave it empty for no colors.",
+      "default": ""
+    },
+    "block_prompts_abroad": {
+      "type": "boolean",
+      "title": "Block prompts when abroad",
+      "description": "When on, pressing Enter does not send your prompt while the detected country differs from your home country (the red code). Slash commands still work. Needs home_country.",
+      "default": false
+    },
+    "check_every_seconds": {
+      "type": "number",
+      "title": "Check every (seconds)",
+      "description": "How often to look up the country of your IP. Default 60, minimum 2, maximum 3600.",
+      "default": 60,
+      "min": 2,
+      "max": 3600
+    }
+  }
+}

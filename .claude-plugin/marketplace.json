@@ -1,0 +1,6 @@
+{
+  "name": "itandfeel-plugins",
+  "owner": { "name": "itandfeel" },
+  "metadata": { "description": "Claude Code plugins by itandfeel" },
+  "plugins": [{ "name": "my-country", "source": "./" }]
+}
