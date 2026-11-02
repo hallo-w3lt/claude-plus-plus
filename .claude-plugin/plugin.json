@@ -4,7 +4,7 @@
   "description": "Shows the country of your public IP as an uppercase ISO3 code (ESP, DEU, USA) at the left of the hint line under the prompt",
   "author": { "name": "itandfeel" },
   "license": "MIT",
-  "repository": "https://github.com/ITandfeel/my-country-claude-plugin",
+  "repository": "https://github.com/hallo-w3lt/claude-plus-plus",
   "keywords": ["country", "ip", "footer"],
   "types": "./types/index.d.ts",
   "userConfig": {

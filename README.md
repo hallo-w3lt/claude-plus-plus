@@ -49,7 +49,7 @@ The check uses the last country it saw, so a VPN drop is caught only after the n
 
 ## What it asks
 
-The same services as IP Please, in order, with no API key: `cloudflare.com/cdn-cgi/trace`, then `api.country.is`, `ipinfo.io` and `ipwho.is`. It checks at startup and again every 60 seconds by default, so a VPN change shows up on the next pass. Only the country code is kept, and only for the session.
+The same services as [IP Please](https://github.com/hallo-w3lt/ip-please-extension), in order, with no API key: `cloudflare.com/cdn-cgi/trace`, then `api.country.is`, `ipinfo.io` and `ipwho.is`. It checks at startup and again every 60 seconds by default, so a VPN change shows up on the next pass. Only the country code is kept, and only for the session.
 
 ## Check interval
 
@@ -68,20 +68,18 @@ Each pass makes one request, to Cloudflare, and only goes on to the next service
 At the prompt of a terminal session:
 
 ```
-/plugin install my-country --marketplace ITandfeel/my-country-claude-plugin
+/plugin install my-country --marketplace hallo-w3lt/claude-plus-plus
 ```
 
 Or from a shell:
 
 ```
-claude plugin install my-country --marketplace ITandfeel/my-country-claude-plugin
+claude plugin install my-country --marketplace hallo-w3lt/claude-plus-plus
 ```
 
 Answer `y` to add the marketplace and pick a scope. A screen then sets the options (`home_country`, `block_prompts_abroad`, `check_every_seconds`), and the plugin is active in that session with no reload.
 
-In the desktop app `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `ITandfeel/my-country-claude-plugin`, then Add plugin.
-
-While the repository is private, it installs only for people who can read it on GitHub and whose machine already holds a git credential for github.com (an SSH key, or `gh auth login` then `gh auth setup-git`). The install never asks for one.
+In the desktop app `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `hallo-w3lt/claude-plus-plus`, then Add plugin.
 
 The hint line is drawn in the terminal and in the Desktop app's Code tab. It is not drawn in the VS Code extension.
 
@@ -90,8 +88,8 @@ The hint line is drawn in the terminal and in the Desktop app's Code tab. It is 
 Clone the repository and run the plugin from its folder, with a reload on every save:
 
 ```
-git clone https://github.com/ITandfeel/my-country-claude-plugin.git
-claude --plugin-dir ./my-country-claude-plugin
+git clone https://github.com/hallo-w3lt/claude-plus-plus.git
+claude --plugin-dir ./claude-plus-plus
 ```
 
 Check it with `claude plugin validate .` and run its tests with `claude plugin test .` from that folder. The type definitions the editor and `tsc` use are written by Claude Code into `.claude-plugin/types/` the first time the plugin loads, and are not committed.
