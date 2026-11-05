@@ -17,7 +17,7 @@
     "block_prompts_abroad": {
       "type": "boolean",
       "title": "Block prompts when abroad",
-      "description": "When on, pressing Enter does not send your prompt while the detected country differs from your home country (the red code). Slash commands still work. Needs home_country.",
+      "description": "When on, pressing Enter does not send your prompt while the detected country differs from your home country (the red code). It is checked again at Enter, and a prompt is also held when the country cannot be confirmed (offline). Slash commands still work. Needs home_country.",
       "default": false
     },
     "check_every_seconds": {

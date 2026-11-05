@@ -127,7 +127,7 @@ test('shows only the code when the hint line is empty', async ($, on) => {
   await ui.unmount()
 })
 
-test('leaves the hint alone until a country is known', async ($, on) => {
+test('shows NoN when no service gives a country', async ($, on) => {
   const clock = mock.clock(on)
   engine(on, () => DOWN)
 
@@ -135,11 +135,11 @@ test('leaves the hint alone until a country is known', async ($, on) => {
   await clock.settle()
 
   const ui = await $.ui.mount(HINT)
-  expect((await ui.find({ type: 'Text' }))?.text).toBe('? for shortcuts')
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('NoN  ? for shortcuts')
   await ui.unmount()
 })
 
-test('follows a VPN change on the next pass and keeps the code when a pass fails', async ($, on) => {
+test('follows a VPN change, shows NoN when a pass fails, and recovers within seconds', async ($, on) => {
   const clock = mock.clock(on)
   let reply: ReturnType<typeof trace> = trace('es')
   engine(on, () => reply)
@@ -159,9 +159,68 @@ test('follows a VPN change on the next pass and keeps the code when a pass fails
   await clock.advance(60_000)
   expect(await shown()).toBe('DEU  ? for shortcuts')
 
+  // The old country is not kept: it would be a lie about the new connection.
   reply = DOWN
   await clock.advance(60_000)
-  expect(await shown()).toBe('DEU  ? for shortcuts')
+  expect(await shown()).toBe('NoN  ? for shortcuts')
+
+  // Back online: the next try is a few seconds away, not another full minute.
+  reply = trace('fr')
+  await clock.advance(5_000)
+  expect(await shown()).toBe('FRA  ? for shortcuts')
+})
+
+test('retries every few seconds while NoN, and stops once a country is back', async ($, on) => {
+  const clock = mock.clock(on)
+  let reply: ReturnType<typeof trace> = DOWN
+  const asked: string[] = []
+  engine(on, url => {
+    asked.push(url)
+    return reply
+  })
+
+  await start($)
+  await clock.settle()
+  const first = asked.length // one pass tries every service
+
+  await clock.advance(5_000)
+  expect(asked.length).toBe(first * 2)
+
+  reply = trace('es')
+  await clock.advance(5_000)
+  const back = asked.length
+  expect(back).toBe(first * 2 + 1) // Cloudflare answered, no more services asked
+
+  await clock.advance(30_000) // well inside the 60 second interval
+  expect(asked.length).toBe(back)
+})
+
+test('drops a service that does not answer in 6 seconds and tries the next one', async ($, on) => {
+  const clock = mock.clock(on)
+  const asked: string[] = []
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('http.fetch', (_$, e) => {
+    asked.push(e.url)
+    // Cloudflare never answers.
+    if (e.url.includes('cloudflare')) return new Promise<never>(() => {})
+    return { value: { status: 200, ok: true, headers: {}, text: '{"country":"de"}' } }
+  })
+  on('ui.render', { component: 'PromptHint' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>{e.props.hint}</Text>
+  })
+
+  await start($)
+  await clock.settle()
+  expect(asked).toHaveLength(1)
+
+  await clock.advance(6_000)
+  expect(asked).toHaveLength(2)
+  expect(asked[1]).toContain('country.is')
+
+  const ui = await $.ui.mount(HINT)
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('DEU  ? for shortcuts')
+  await ui.unmount()
 })
 
 // The Text that holds the code alone: the whole line also contains it, so the
@@ -406,7 +465,7 @@ test('slash commands and prompts that are not the Enter of the person still go t
   expect(entered).toEqual(['/config', 'build finished', 'tick'])
 })
 
-test('sends the prompt when the country is not known yet', ABROAD_ONLY, async ($, on) => {
+test('does not send the prompt when the country cannot be confirmed', ABROAD_ONLY, async ($, on) => {
   const clock = mock.clock(on)
   const entered = session(on)
   engine(on, () => DOWN)
@@ -414,8 +473,111 @@ test('sends the prompt when the country is not known yet', ABROAD_ONLY, async ($
   await start($)
   await clock.settle()
 
-  expect((await $.prompt.submit(typed('hello'))).drop).toBeUndefined()
+  const result = await $.prompt.submit(typed('hello'))
+  expect(result).toEqual({ drop: 'Prompt not sent: could not confirm that your IP is in USA.' })
+  expect(entered).toEqual([])
+})
+
+test('does not send a prompt typed before the first lookup came back', ABROAD_ONLY, async ($, on) => {
+  mock.clock(on)
+  const entered = session(on)
+  engine(on, () => DOWN)
+
+  // No session.start, so no lookup has run: the Enter has to look for itself.
+  const result = await $.prompt.submit(typed('hello'))
+  expect(result.drop).toContain('could not confirm')
+  expect(entered).toEqual([])
+})
+
+test('checks the IP again at Enter instead of trusting the last pass', ABROAD_ONLY, async ($, on) => {
+  const clock = mock.clock(on)
+  const entered = session(on)
+  let reply: ReturnType<typeof trace> = trace('us')
+  engine(on, () => reply)
+
+  await start($)
+  await clock.settle()
+  expect((await $.prompt.submit(typed('one'))).drop).toBeUndefined()
+
+  // The VPN drops a moment later; the next scheduled pass is almost a minute away.
+  reply = trace('nl')
+  await clock.advance(1_000)
+  const dropped = await $.prompt.submit(typed('two'))
+  expect(dropped.drop).toBe('Prompt not sent: your IP is in NLD, not in USA.')
+
+  // And the connection going away entirely holds it too.
+  reply = DOWN
+  expect((await $.prompt.submit(typed('three'))).drop).toContain('could not confirm')
+
+  // Back home: it goes through at once, without waiting for a pass.
+  reply = trace('us')
+  expect((await $.prompt.submit(typed('four'))).drop).toBeUndefined()
+  expect(entered).toEqual(['one', 'four'])
+})
+
+test('the Enter check also moves the code on screen', ABROAD_ONLY, async ($, on) => {
+  const clock = mock.clock(on)
+  session(on)
+  let reply: ReturnType<typeof trace> = trace('us')
+  engine(on, () => reply)
+
+  await start($)
+  await clock.settle()
+  const ui = await $.ui.mount(HINT)
+  expect((await ui.find(codeText('USA')))?.props.color).toBe('green')
+
+  reply = trace('nl')
+  await $.prompt.submit(typed('hello'))
+  expect((await ui.find(codeText('NLD')))?.props.color).toBe('red')
+  await ui.unmount()
+})
+
+test('at Enter a service that does not answer in 3 seconds gives way to the next', ABROAD_ONLY, async ($, on) => {
+  const clock = mock.clock(on)
+  const entered = session(on)
+  let cloudflareSilent = false
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('http.fetch', (_$, e) => {
+    if (e.url.includes('cloudflare')) {
+      return cloudflareSilent ? new Promise<never>(() => {}) : { value: trace('us') }
+    }
+    return { value: { status: 200, ok: true, headers: {}, text: '{"country":"us"}' } }
+  })
+
+  await start($)
+  await clock.settle()
+
+  cloudflareSilent = true
+  const sent = $.prompt.submit(typed('hello'))
+  await clock.advance(3_000)
+  expect((await sent).drop).toBeUndefined()
   expect(entered).toEqual(['hello'])
+})
+
+test('NoN is red with a home country and dim without one', { options: { home_country: 'USA' } }, async ($, on) => {
+  const clock = mock.clock(on)
+  engine(on, () => DOWN)
+
+  await start($)
+  await clock.settle()
+
+  const ui = await $.ui.mount(HINT)
+  expect((await ui.find(codeText('NoN')))?.props.color).toBe('red')
+  await ui.unmount()
+})
+
+test('NoN has no color when there is no home country', async ($, on) => {
+  const clock = mock.clock(on)
+  engine(on, () => DOWN)
+
+  await start($)
+  await clock.settle()
+
+  const ui = await $.ui.mount(HINT)
+  const props = (await ui.find(codeText('NoN')))?.props
+  expect(props?.color).toBeUndefined()
+  expect(props?.dimColor).toBe(true)
+  await ui.unmount()
 })
 
 test('says so when blocking is on but there is no home country', { options: { block_prompts_abroad: true } }, async ($, on) => {

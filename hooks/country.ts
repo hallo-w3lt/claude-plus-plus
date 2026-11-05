@@ -8,6 +8,10 @@ export const DEFAULT_SECONDS = 60
 export const MIN_SECONDS = 2
 export const MAX_SECONDS = 3600
 
+// Shown in place of the country when no service gave one: no connection, or
+// every service failed. Not a country, so it can never equal a home country.
+export const OFFLINE = 'NoN'
+
 // How often to look the country up, from the `check_every_seconds` option, in
 // milliseconds. Not a number means the default. Out of range is pulled in: the
 // floor keeps a 0 from becoming a request storm on free public services.

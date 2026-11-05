@@ -11,7 +11,7 @@ The left of the footer row is the permission mode, which a plugin cannot draw in
 
 The services answer with the two-letter code, so the plugin converts it with a built-in table of all 249 ISO 3166-1 entries (`hooks/iso3.ts`). Two codes are not ISO: Kosovo shows as `XKX`, and Tor traffic, which Cloudflare reports as `T1`, shows as `TOR`.
 
-The code appears once the first lookup succeeds. A later failure keeps the last code. Nothing is written to disk.
+The code appears once the first lookup has finished. When no service gives a country (you are offline, or every service failed) it reads `NoN` instead, never the last country: an old code would be a false statement about the new connection. It is red when a home country is set, dim otherwise, and the plugin asks again every few seconds until a country comes back, instead of waiting out a whole check interval. To show `Err` instead, change `OFFLINE` at the top of `hooks/country.ts`. Nothing is written to disk.
 
 ## Home country and colors
 
@@ -31,7 +31,9 @@ Changing it reloads the plugin with the new value. The two colors are the `AT_HO
 
 ## Block prompts when abroad
 
-Set `block_prompts_abroad` to `true` (it is off by default) and pressing Enter does not send your prompt while the code is red. You get `Prompt not sent: your IP is in NLD, not in USA.` instead. It needs `home_country`; without one it blocks nothing and says so at startup.
+Set `block_prompts_abroad` to `true` (it is off by default) and pressing Enter sends your prompt only when your IP is confirmed to be in the home country. Otherwise you get `Prompt not sent: your IP is in NLD, not in USA.`, or `Prompt not sent: could not confirm that your IP is in USA.` when the country could not be found. It needs `home_country`; without one it blocks nothing and says so at startup.
+
+The check is made at Enter, not read from the last pass: the plugin asks the services again at that moment, and each of them answers with the IP and its country together, so the country judged is always the one of the IP in use right then. Each service gets 3 seconds there. If none answers, the prompt is held.
 
 ```json
 "pluginConfigs": {
@@ -43,15 +45,14 @@ What it leaves alone, on purpose:
 
 - **Slash commands** go through, so `/config` always works and you can turn this off from a red state.
 - **Anything you did not send** goes through: background task notifications, scheduled runs, other sessions. Only your Enter in the terminal, and messages from the Remote Control app, are held.
-- **An unknown country** goes through. If every lookup fails (you are offline) the plugin cannot tell, and it never locks you out. The same goes if the plugin itself errors.
 
-The check uses the last country it saw, so a VPN drop is caught only after the next pass. Pair it with a short `check_every_seconds` if that gap matters.
+What it does not leave alone: **an unknown country is held**. If every lookup fails (you are offline, or the services are blocked), or the plugin itself errors, the prompt is not sent. The way out is `/config`, which always works: turn `block_prompts_abroad` off there.
 
 ## What it asks
 
 The same services as [IP Please](https://github.com/hallo-w3lt/ip-please-extension), in order, with no API key: `cloudflare.com/cdn-cgi/trace`, then `api.country.is`, `ipinfo.io` and `ipwho.is`. It checks at startup and again every 60 seconds by default, so a VPN change shows up on the next pass. Only the country code is kept, and only for the session.
 
-Every request goes from your machine, so each of these services sees your public IP address. That is how they can tell the country. Apart from the standard headers any web request carries, the plugin sends them nothing else. Like any mod, its prompt hook runs on every prompt you send, but it only checks where the prompt came from and whether it is a slash command. It never looks at the text you type, and nothing you type is stored or sent anywhere.
+Every request goes from your machine, so each of these services sees your public IP address. That is how they can tell the country. Apart from the standard headers any web request carries, the plugin sends them nothing else. Like any mod, its prompt hook runs on every prompt you send, but it only checks where the prompt came from and whether it is a slash command, and with `block_prompts_abroad` on it looks the country up again at that moment. It never looks at the text you type, and nothing you type is stored or sent anywhere.
 
 ## Check interval
 
