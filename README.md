@@ -48,11 +48,31 @@ What it leaves alone, on purpose:
 
 What it does not leave alone: **an unknown country is held**. If every lookup fails (you are offline, or the services are blocked), or the plugin itself errors, the prompt is not sent. The way out is `/config`, which always works: turn `block_prompts_abroad` off there.
 
+## Stop a running turn when abroad
+
+Set `abort_running_abroad` to `true` (it is off by default) and the turn that is running is stopped as soon as a check finds your IP in a country other than your home country. A toast says so: `my-country: stopped the running turn. Your IP is in NLD, not in USA.` It needs `home_country`; without one it stops nothing and says so at startup.
+
+```json
+"pluginConfigs": {
+  "my-country": { "options": { "home_country": "USA", "abort_running_abroad": true, "check_every_seconds": 5 } }
+}
+```
+
+It is independent of `block_prompts_abroad`. That one holds what you are about to send, this one stops what is already running, and either can be on without the other.
+
+How it behaves:
+
+- **An unknown country never stops anything.** If every lookup fails (you are offline, or the services are blocked), the turn keeps running and the plugin keeps asking every few seconds. Only a country that was found, and is not your home country, stops it. This is the opposite of `block_prompts_abroad`, which holds a prompt when the country is unknown.
+- **It reacts within `check_every_seconds`.** At the default of 60 seconds a turn can run for up to a minute after the IP left the home country, so set it to `5` if you want a quick cut.
+- **It stops any turn of the main conversation**, including one started by a task notification or a schedule, and one that started while you were already abroad. Unlike the prompt block, it does not check where the turn came from.
+- **It stops the turn and the tools that turn is running** (a command, a request to the model). It does nothing about subagents or background tasks that were already started, which may keep going.
+- **It leaves no interruption marker** in the conversation. The toast is the only trace.
+
 ## What it asks
 
 The same services as [IP Please](https://github.com/hallo-w3lt/ip-please-extension), in order, with no API key: `cloudflare.com/cdn-cgi/trace`, then `api.country.is`, `ipinfo.io` and `ipwho.is`. It checks at startup and again every 60 seconds by default, so a VPN change shows up on the next pass. Only the country code is kept, and only for the session.
 
-Every request goes from your machine, so each of these services sees your public IP address. That is how they can tell the country. Apart from the standard headers any web request carries, the plugin sends them nothing else. Like any mod, its prompt hook runs on every prompt you send, but it only checks where the prompt came from and whether it is a slash command, and with `block_prompts_abroad` on it looks the country up again at that moment. It never looks at the text you type, and nothing you type is stored or sent anywhere.
+Every request goes from your machine, so each of these services sees your public IP address. That is how they can tell the country. Apart from the standard headers any web request carries, the plugin sends them nothing else. Like any mod, its prompt hook runs on every prompt you send, but it only checks where the prompt came from and whether it is a slash command, and with `block_prompts_abroad` on it looks the country up again at that moment. It never looks at the text you type, and nothing you type is stored or sent anywhere. With `abort_running_abroad` on (and a home country set), two more hooks run on every turn, at its start and at its end. They only keep the id of the turn that is running, never anything that was said in it.
 
 ## Check interval
 
@@ -82,7 +102,7 @@ Or from a shell:
 claude plugin install my-country --marketplace hallo-w3lt/claude-plus-plus
 ```
 
-Answer `y` to add the marketplace and pick a scope. A screen then sets the options (`home_country`, `block_prompts_abroad`, `check_every_seconds`), and the plugin is active in that session with no reload.
+Answer `y` to add the marketplace and pick a scope. A screen then sets the options (`home_country`, `block_prompts_abroad`, `abort_running_abroad`, `check_every_seconds`), and the plugin is active in that session with no reload.
 
 In the desktop app `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `hallo-w3lt/claude-plus-plus`, then Add plugin.
 

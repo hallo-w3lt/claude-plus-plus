@@ -598,3 +598,244 @@ test('says so when blocking is on but there is no home country', { options: { bl
   expect((await $.prompt.submit(typed('hello'))).drop).toBeUndefined()
   expect(entered).toEqual(['hello'])
 })
+
+// The engine beneath, for turns: it records the turns it was asked to abort. A turn
+// is begun and ended through the same calls the engine makes.
+function turns(on: On, fail = false) {
+  const stopped: string[] = []
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+  on('turn.abort', (_$, e) => {
+    if (fail) throw new Error('the turn is not running')
+    stopped.push(e.turnId)
+    return { value: undefined }
+  })
+  return stopped
+}
+
+function toastLog(on: On) {
+  const shown: string[] = []
+  on('ui.toast', (_$, e) => {
+    shown.push(e.text)
+    return { value: undefined }
+  })
+  return shown
+}
+
+const begin = ($: Engine, turnId: string, extra: object = {}) => $.turn.start({ text: 'go', turnId, ...extra })
+const finish = ($: Engine, turnId: string) =>
+  $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId, reason: 'answer' })
+
+const STOP_ABROAD = { options: { home_country: 'USA', abort_running_abroad: true, check_every_seconds: 5 } }
+
+test('stops the running turn when the IP leaves the home country, and says so', STOP_ABROAD, async ($, on) => {
+  const clock = mock.clock(on)
+  const stopped = turns(on)
+  const shown = toastLog(on)
+  let reply: ReturnType<typeof trace> = trace('us')
+  engine(on, () => reply)
+
+  await start($)
+  await clock.settle()
+  await begin($, 't1')
+
+  await clock.advance(5_000)
+  expect(stopped).toEqual([]) // still home
+
+  reply = trace('nl')
+  await clock.advance(5_000)
+  expect(stopped).toEqual(['t1'])
+  expect(shown).toEqual(['my-country: stopped the running turn. Your IP is in NLD, not in USA.'])
+})
+
+test('goes after a turn once, not on every pass while abroad', STOP_ABROAD, async ($, on) => {
+  const clock = mock.clock(on)
+  const stopped = turns(on)
+  engine(on, () => trace('nl'))
+
+  await start($)
+  await clock.settle()
+  await begin($, 't1')
+  await clock.advance(5_000)
+  await clock.advance(5_000)
+  await clock.advance(5_000)
+  expect(stopped).toEqual(['t1'])
+})
+
+test('stops a turn that started while already abroad, at the next pass', STOP_ABROAD, async ($, on) => {
+  const clock = mock.clock(on)
+  const stopped = turns(on)
+  engine(on, () => trace('nl'))
+
+  await start($)
+  await clock.settle()
+  expect(stopped).toEqual([]) // nothing was running
+
+  await begin($, 't2')
+  await clock.advance(5_000)
+  expect(stopped).toEqual(['t2'])
+})
+
+test('an unknown country never stops the turn, however long the lookups fail', STOP_ABROAD, async ($, on) => {
+  const clock = mock.clock(on)
+  const stopped = turns(on)
+  let reply: ReturnType<typeof trace> = trace('us')
+  engine(on, () => reply)
+
+  await start($)
+  await clock.settle()
+  await begin($, 't1')
+
+  reply = DOWN
+  for (let i = 0; i < 6; i++) await clock.advance(5_000)
+  expect(stopped).toEqual([])
+
+  // Back at home: still running. Only a country that was found, and is not home, stops it.
+  reply = trace('us')
+  await clock.advance(5_000)
+  expect(stopped).toEqual([])
+
+  reply = trace('de')
+  await clock.advance(5_000)
+  expect(stopped).toEqual(['t1'])
+})
+
+test('does nothing while the IP is in the home country', STOP_ABROAD, async ($, on) => {
+  const clock = mock.clock(on)
+  const stopped = turns(on)
+  engine(on, () => trace('us'))
+
+  await start($)
+  await clock.settle()
+  await begin($, 't1')
+  for (let i = 0; i < 3; i++) await clock.advance(5_000)
+  expect(stopped).toEqual([])
+})
+
+test('stops nothing unless the option is on', { options: { home_country: 'USA', check_every_seconds: 5 } }, async ($, on) => {
+  const clock = mock.clock(on)
+  const stopped = turns(on)
+  engine(on, () => trace('nl'))
+
+  await start($)
+  await clock.settle()
+  await begin($, 't1')
+  await clock.advance(5_000)
+  expect(stopped).toEqual([])
+})
+
+test('leaves a turn alone once it has ended', STOP_ABROAD, async ($, on) => {
+  const clock = mock.clock(on)
+  const stopped = turns(on)
+  let reply: ReturnType<typeof trace> = trace('us')
+  engine(on, () => reply)
+
+  await start($)
+  await clock.settle()
+  await begin($, 't1')
+  await finish($, 't1')
+
+  reply = trace('nl')
+  await clock.advance(5_000)
+  expect(stopped).toEqual([])
+})
+
+test('a subagent ending does not hide the main turn that is still running', STOP_ABROAD, async ($, on) => {
+  const clock = mock.clock(on)
+  const stopped = turns(on)
+  let reply: ReturnType<typeof trace> = trace('us')
+  engine(on, () => reply)
+
+  await start($)
+  await clock.settle()
+  await begin($, 'main')
+  await begin($, 'sub', { agentId: 'a1' })
+  await finish($, 'sub')
+
+  reply = trace('nl')
+  await clock.advance(5_000)
+  expect(stopped).toEqual(['main'])
+})
+
+test('a subagent turn alone is not a turn to stop', STOP_ABROAD, async ($, on) => {
+  const clock = mock.clock(on)
+  const stopped = turns(on)
+  engine(on, () => trace('nl'))
+
+  await start($)
+  await clock.settle()
+  await begin($, 'sub', { agentId: 'a1' })
+  await clock.advance(5_000)
+  expect(stopped).toEqual([])
+})
+
+test('a turn that ended just before the abort lands does not break the pass', STOP_ABROAD, async ($, on) => {
+  const clock = mock.clock(on)
+  const stopped = turns(on, true)
+  const shown = toastLog(on)
+  let reply: ReturnType<typeof trace> = trace('us')
+  engine(on, () => reply)
+
+  await start($)
+  await clock.settle()
+  await begin($, 't1')
+
+  reply = trace('nl')
+  await clock.advance(5_000)
+  expect(stopped).toEqual([])
+  expect(shown).toEqual([]) // it was not stopped, so it does not claim to have been
+
+  // The country was still kept, and the plugin keeps checking.
+  const ui = await $.ui.mount(HINT)
+  expect((await ui.find(codeText('NLD')))?.props.color).toBe('red')
+  reply = trace('us')
+  await clock.advance(5_000)
+  expect((await ui.find(codeText('USA')))?.props.color).toBe('green')
+  await ui.unmount()
+})
+
+test('the check at Enter also stops the turn that is running', { options: { home_country: 'USA', block_prompts_abroad: true, abort_running_abroad: true } }, async ($, on) => {
+  const clock = mock.clock(on)
+  const stopped = turns(on)
+  const entered = session(on)
+  let reply: ReturnType<typeof trace> = trace('us')
+  engine(on, () => reply)
+
+  await start($)
+  await clock.settle()
+  await begin($, 't1')
+
+  reply = trace('nl')
+  const result = await $.prompt.submit(typed('hello'))
+  expect(result.drop).toBe('Prompt not sent: your IP is in NLD, not in USA.')
+  expect(stopped).toEqual(['t1'])
+  expect(entered).toEqual([])
+})
+
+test('says so when stopping is on but there is no home country', { options: { abort_running_abroad: true } }, async ($, on) => {
+  const clock = mock.clock(on)
+  const stopped = turns(on)
+  const shown = toastLog(on)
+  engine(on, () => trace('nl'))
+
+  await start($)
+  await clock.settle()
+  await begin($, 't1')
+  await clock.advance(60_000)
+
+  expect(shown).toHaveLength(1)
+  expect(shown[0]).toContain('home_country')
+  expect(stopped).toEqual([])
+})
+
+test('says it once when both options are on and there is no home country', { options: { block_prompts_abroad: true, abort_running_abroad: true } }, async ($, on) => {
+  const clock = mock.clock(on)
+  const shown = toastLog(on)
+  engine(on, () => trace('nl'))
+
+  await start($)
+  await clock.settle()
+
+  expect(shown).toHaveLength(1)
+  expect(shown[0]).toContain('home_country')
+})

@@ -20,6 +20,12 @@
       "description": "When on, pressing Enter does not send your prompt while the detected country differs from your home country (the red code). It is checked again at Enter, and a prompt is also held when the country cannot be confirmed (offline). Slash commands still work. Needs home_country.",
       "default": false
     },
+    "abort_running_abroad": {
+      "type": "boolean",
+      "title": "Stop the running turn when abroad",
+      "description": "When on, the turn that is running is stopped as soon as a check finds your IP in a country other than your home country. A country that cannot be found (offline) never stops it. Needs home_country. Set a short check interval, for example 5 seconds, so it reacts quickly.",
+      "default": false
+    },
     "check_every_seconds": {
       "type": "number",
       "title": "Check every (seconds)",

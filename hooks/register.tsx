@@ -16,6 +16,13 @@ let tick: Timer | null = null
 let retry: Timer | null = null
 let busy = false
 
+// The id of the main loop's turn that is running, null between turns. Only the
+// main loop's: a subagent's or a teammate's turn carries an agentId and is left out.
+let running: string | null = null
+// The home country while `abort_running_abroad` is on and there is a home country
+// to compare with. Null otherwise, which is also how the check knows it is off.
+let cutHome: string | null = null
+
 // IP Please gives each service 6 seconds. `$.http.fetch` has no timeout of its
 // own, so a request that never answered would keep `busy` set for good and stop
 // every later check, and the services after it would never get a turn.
@@ -36,11 +43,30 @@ const fetchWithTimeout = ($: EngineInterface, url: string, timeoutMs: number) =>
       .finally(() => timer.cancel())
   })
 
+// Stops the running turn when the IP is confirmed to be outside the home country.
+// NoN never stops it: "not sure" is not "not there", and a short outage of the
+// lookup services must not kill a long run. It never throws: the turn can end on
+// its own just before the abort lands, and that must not fail the lookup around it.
+const cutIfAbroad = async ($: EngineInterface, code: string) => {
+  if (cutHome === null || running === null || code === OFFLINE || code === cutHome) return
+  const turnId = running
+  // Cleared first, so a second pass cannot go after the same turn.
+  running = null
+  try {
+    await $.turn.abort({ turnId })
+    $.ui.toast(`my-country: stopped the running turn. Your IP is in ${code}, not in ${cutHome}.`)
+  } catch {
+    // The turn was already over. Nothing is left to stop.
+  }
+}
+
 // Looks the country up now and keeps it, NoN when nothing answered. A failure
 // replaces the last code on purpose: a stale country is worse than none.
 const locate = async ($: EngineInterface, timeoutMs: number): Promise<string> => {
   const found = await lookupCountry(url => fetchWithTimeout($, url, timeoutMs))
   const code = found ?? OFFLINE
+  // Before the state is written: stopping the turn comes first, the code on screen after.
+  await cutIfAbroad($, code)
   if ((await read($, country)) !== code) await update($, country, () => code)
   return code
 }
@@ -67,6 +93,11 @@ export const register: Register = (on, options) => {
   const everyMs = intervalMs(options.check_every_seconds)
   const retryMs = Math.min(everyMs, RETRY_MS)
   const blockAbroad = options.block_prompts_abroad === true
+  const abortAbroad = options.abort_running_abroad === true
+
+  // A reload starts the module over, so a turn already running is not known.
+  running = null
+  cutHome = abortAbroad ? home : null
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -79,11 +110,31 @@ export const register: Register = (on, options) => {
     // A typo would otherwise leave the colors off with no hint of why.
     if (typed && home === null) {
       $.ui.toast(`my-country: "${typed}" is not a country code. Use 3 letters, for example USA.`)
-    } else if (blockAbroad && home === null) {
-      $.ui.toast('my-country: blocking prompts needs a home_country, so nothing is blocked.')
+    } else if (home === null && (blockAbroad || abortAbroad)) {
+      $.ui.toast(
+        blockAbroad && abortAbroad
+          ? 'my-country: blocking prompts and stopping a running turn need a home_country, so nothing is blocked or stopped.'
+          : blockAbroad
+            ? 'my-country: blocking prompts needs a home_country, so nothing is blocked.'
+            : 'my-country: stopping a running turn needs a home_country, so nothing is stopped.',
+      )
     }
     return result
   })
+
+  // Only the ids of the turns are kept, never what was said in them. The hooks
+  // exist only while the option is on and there is a home country to compare with.
+  if (cutHome !== null) {
+    on('turn.start', ($, e, next) => {
+      if (e.agentId === undefined) running = e.turnId
+      return next(e)
+    })
+
+    on('turn.complete', ($, e, next) => {
+      if (e.turnId === running) running = null
+      return next(e)
+    })
+  }
 
   // The Enter that sends a prompt. It fails closed: the prompt goes through only
   // when the country is confirmed right now to be the home country. Not found,
